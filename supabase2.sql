@@ -1,11 +1,48 @@
 -- =====================================================================
--- CarnavalPass – TWEEDE REEKS: kaartjes Frituur 't Nief Patatje
--- Eerst moet supabase.sql (de eerste reeks) al gedraaid zijn.
--- Plak ALLES in Supabase → SQL Editor → Run. Mag je meerdere keren draaien.
--- Deze 10 kaarten staan LOS van de eerste 10: eigen saldo en eigen historie.
+-- CarnavalPass – FRITUUR-reeks, voor een APART Supabase-project
+-- Plak ALLES in de SQL Editor van het NIEUWE project → Run.
+-- Mag je meerdere keren draaien.
 -- =====================================================================
 
--- 1. De 10 frituur-kaarten (elke kaart start met €15,00 = 1500 cent)
+-- 1. Beheerders: alleen deze e-mailadressen mogen de app gebruiken.
+create table if not exists public.admins (
+  email text primary key
+);
+insert into public.admins (email) values
+  ('ceulemanswendy6@gmail.com')          -- ← voeg hier extra beheerders toe
+on conflict do nothing;
+
+-- 2. Beveiliging: niemand mag de tabellen rechtstreeks lezen of wijzigen.
+--    Alles loopt via de functies hieronder, die eerst controleren of je beheerder bent.
+alter table public.admins   enable row level security;
+
+-- Instelling: mag iedereen die zelf een account maakt (e-mail of Google) meteen scannen?
+--   true  = ja, elk ingelogd account mag scannen en afschrijven
+--   false = alleen e-mailadressen uit de tabel 'admins'
+create table if not exists public.app_settings (
+  id          int primary key default 1 check (id = 1),
+  open_signup boolean not null default true
+);
+insert into public.app_settings (id) values (1) on conflict do nothing;
+alter table public.app_settings enable row level security;
+-- Later dichtzetten:  update public.app_settings set open_signup = false;
+
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.jwt() ->> 'email' is not null and (
+         exists (select 1 from admins where lower(email) = lower(auth.jwt() ->> 'email'))
+      or coalesce((select open_signup from app_settings where id = 1), false));
+$$;
+
+create or replace function public.require_admin() returns void
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'forbidden' using errcode = '42501'; end if;
+end $$;
+
+grant execute on function public.is_admin() to authenticated;
+
+-- 3. De 10 frituur-kaarten (elke kaart start met €15,00 = 1500 cent)
 create table if not exists public.frituur_cards (
   number        int primary key,
   token         text not null unique,
@@ -126,3 +163,7 @@ revoke all on function public.verify_card2(text), public.redeem_card2(text, int)
                        public.card_token2(int), public.card_history2() from public, anon;
 grant execute on function public.verify_card2(text), public.redeem_card2(text, int),
                           public.list_cards2(), public.card_token2(int), public.card_history2() to authenticated;
+
+
+-- Laat de app de nieuwe functies meteen zien
+notify pgrst, 'reload schema';
