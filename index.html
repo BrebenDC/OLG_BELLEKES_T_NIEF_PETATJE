@@ -198,7 +198,7 @@ button{cursor:pointer}
   <form class="center" id="loginForm" autocomplete="on">
     <svg class="logo" width="64" height="64" viewBox="0 0 24 24" fill="#dbb352"><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7z"/></svg>
     <div class="title">CarnavalPass</div>
-    <div class="club">OLG De Bellekes</div>
+    <div class="club">OLG De Bellekes · Reeks <span class="reeksNr"></span></div>
     <div class="seg" id="authSeg">
       <button type="button" data-mode="in" class="on">Inloggen</button>
       <button type="button" data-mode="up">Account maken</button>
@@ -250,7 +250,7 @@ button{cursor:pointer}
         <div class="hero">
           <svg class="logo" width="46" height="46" viewBox="0 0 24 24" fill="#dbb352"><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7z"/></svg>
           <div class="title">CarnavalPass</div>
-          <div class="sub">Toegangscontrole carnavalswagen · max €15 per kaart</div>
+          <div class="sub">Toegangscontrole carnavalswagen · <span id="reeksLbl">Reeks</span> · max €15 per kaart</div>
         </div>
         <div class="stats">
           <div class="panel stat"><b id="stTotal" style="color:#fff">0</b><span>Totaal</span></div>
@@ -343,12 +343,15 @@ button{cursor:pointer}
 /* =====================================================================
    CONFIGURATIE
    ===================================================================== */
+/* Welke reeks kaarten deze site scant: 1 of 2 */
+const REEKS = 2;
+
 const SUPABASE_URL      = "https://cmocunoidgjoqqziaftg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtb2N1bm9pZGdqb3FxemlhZnRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxNzA5ODQsImV4cCI6MjEwODc0Njk4NH0.lk6AgZrT67K8nHE_xGApt3Z96RtQrCa9YPBK-JoXaGY";
-// De database maak je aan met supabase-frituur-apart.sql (SQL Editor → Run).
+// De database maak je aan met reeks2.sql (SQL Editor → Run).
 
 const MAX_CENTS   = 1500;                       // €15,00
-const QR_PREFIX   = "carnavalpass://frituur/";
+const QR_PREFIX   = "carnavalpass://" + (REEKS === 1 ? "card" : "reeks" + REEKS) + "/";
 const TOTAL_CARDS = 10;
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -522,7 +525,7 @@ async function applySession(session){
     show("s-login");
     const m = String(e && (e.message || e.code) || e);
     $("loginErr").textContent = /is_admin|function|schema cache|PGRST202|42883/i.test(m)
-      ? "De database is nog niet ingesteld: draai supabase.sql in de SQL Editor van Supabase."
+      ? "De database is nog niet ingesteld: draai reeks"+REEKS+".sql in de SQL Editor van Supabase."
       : "Geen verbinding met de server (" + m + "). Probeer opnieuw.";
     return;
   }
@@ -557,12 +560,12 @@ let cards = [];
 
 async function loadCards(){
   try {
-    cards = await rpc("list_cards2") || [];
+    cards = await rpc("list_cards") || [];
     $("homeErr").textContent = "";
   } catch (e) {
     const m = String(e && (e.message || e.code) || e);
-    $("homeErr").textContent = /list_cards2|function|schema cache|PGRST202|42883/i.test(m)
-      ? "De frituur-kaarten staan nog niet in de database: draai supabase2.sql in de SQL Editor van Supabase."
+    $("homeErr").textContent = /list_cards|function|schema cache|PGRST202|42883/i.test(m)
+      ? "De kaarten staan nog niet in de database: draai reeks"+REEKS+".sql in de SQL Editor van Supabase."
       : "Laden mislukt (" + m + ").";
   }
   const avail = cards.filter(c => c.balance_cents > 0).length;
@@ -626,7 +629,7 @@ async function showQR(c){
   if (btn.dataset.ready){ return shareQR(c); }
   $("qrErr").textContent = "";
   try {
-    const token = await rpc("card_token2", { p_number: c.number });
+    const token = await rpc("card_token", { p_number: c.number });
     if (!token) throw new Error("leeg");
     $("qr").innerHTML = "";
     new QRCode($("qr"), { text: QR_PREFIX + token, width: 520, height: 520,
@@ -667,7 +670,7 @@ async function shareQR(c){
    ===================================================================== */
 async function loadHistory(){
   let log = [];
-  try { log = await rpc("card_history2") || []; }
+  try { log = await rpc("card_history") || []; }
   catch {
     $("historyList").innerHTML = '<div class="err">Historie laden mislukt. Controleer je verbinding.</div>';
     return;
@@ -780,7 +783,7 @@ async function onDecoded(text){
   const t = tokenFrom(text.trim());
   if (!t) return finish({ kind: "invalid" });
   currentToken = t;
-  finish(await run(() => rpc("verify_card2", { p_token: t })));
+  finish(await run(() => rpc("verify_card", { p_token: t })));
 }
 
 async function redeem(cents){
@@ -788,7 +791,7 @@ async function redeem(cents){
   phase = "checking";
   $("result").classList.add("hidden");
   $("checking").classList.remove("hidden");
-  const out = await run(() => rpc("redeem_card2", { p_token: currentToken, p_amount: cents }));
+  const out = await run(() => rpc("redeem_card", { p_token: currentToken, p_amount: cents }));
   finish(out);
   if (out.kind === "redeemed") loadCards();
 }
@@ -913,6 +916,9 @@ document.addEventListener("touchend", e => {
   if (e.target.closest("input")) return;
   const now = Date.now(); if (now - lastTouch < 300) e.preventDefault(); lastTouch = now;
 }, { passive: false });
+
+document.querySelectorAll(".reeksNr").forEach(e => e.textContent = REEKS);
+$("reeksLbl").textContent = "Reeks " + REEKS;
 
 // Start: bewaarde sessie ophalen (blijft ingelogd na sluiten van de app)
 sb.auth.getSession().then(({ data }) => {
